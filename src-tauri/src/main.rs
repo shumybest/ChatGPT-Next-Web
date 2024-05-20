@@ -26,6 +26,7 @@ fn main() {
           "show" => {
             let window = app.get_window("main").unwrap();
             window.show().unwrap();
+            window.set_focus().unwrap();
           }
           _ => {}
         }
