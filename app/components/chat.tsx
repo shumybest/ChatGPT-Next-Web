@@ -464,7 +464,7 @@ export function ChatActions(props: {
     }
   }, [allModels]);
   const [showModelSelector, setShowModelSelector] = useState(false);
-  const [showUploadImage, setShowUploadImage] = useState(false);
+  const [showUploadImage, setShowUploadImage] = useState(true);
 
   useEffect(() => {
     const show = isVisionModel(currentModel);
