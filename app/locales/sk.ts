@@ -1,6 +1,5 @@
 import { getClientConfig } from "../config/client";
 import { SubmitKey } from "../store/config";
-import { LocaleType } from "./index";
 import type { PartialLocaleType } from "./index";
 
 // if you are adding a new translation, please use PartialLocaleType instead of LocaleType
@@ -45,6 +44,8 @@ const sk: PartialLocaleType = {
       PinToastAction: "Zobraziť",
       Delete: "Vymazať",
       Edit: "Upraviť",
+      RefreshTitle: "Obnoviť názov",
+      RefreshToast: "Požiadavka na obnovenie názvu bola odoslaná",
     },
     Commands: {
       new: "Začať nový chat",
@@ -154,6 +155,12 @@ const sk: PartialLocaleType = {
     FontSize: {
       Title: "Veľkosť písma",
       SubTitle: "Nastaviť veľkosť písma obsahu chatu",
+    },
+    FontFamily: {
+      Title: "Chatové Písmo",
+      SubTitle:
+        "Písmo obsahu chatu, ponechajte prázdne pre použitie globálneho predvoleného písma",
+      Placeholder: "Názov Písma",
     },
     InjectSystemPrompts: {
       Title: "Vložiť systémové výzvy",
@@ -359,6 +366,10 @@ const sk: PartialLocaleType = {
     },
 
     Model: "Model",
+    CompressModel: {
+      Title: "Kompresný model",
+      SubTitle: "Model používaný na kompresiu histórie",
+    },
     Temperature: {
       Title: "Teplota",
       SubTitle: "Vyššia hodnota robí výstup náhodnejším",
@@ -416,6 +427,21 @@ const sk: PartialLocaleType = {
   },
   FineTuned: {
     Sysmessage: "Ste asistent, ktorý",
+  },
+  SearchChat: {
+    Name: "Hľadať",
+    Page: {
+      Title: "Hľadať v histórii chatu",
+      Search: "Zadajte kľúčové slová na vyhľadávanie",
+      NoResult: "Nenašli sa žiadne výsledky",
+      NoData: "Žiadne údaje",
+      Loading: "Načítava sa",
+
+      SubTitle: (count: number) => `Nájdených ${count} výsledkov`,
+    },
+    Item: {
+      View: "Zobraziť",
+    },
   },
   Mask: {
     Name: "Maska",
