@@ -3,6 +3,7 @@
 
 use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayMenuItem, SystemTrayEvent};
 use tauri::Manager;
+mod stream;
 
 fn main() {
   let show = CustomMenuItem::new("show".to_string(), "打开窗口");
@@ -15,6 +16,7 @@ fn main() {
   let system_tray = SystemTray::new().with_menu(tray_menu);
 
   let mut app = tauri::Builder::default()
+    .invoke_handler(tauri::generate_handler![stream::stream_fetch])
     .system_tray(system_tray)
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .on_system_tray_event(|app, event| match event {

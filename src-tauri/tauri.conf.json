@@ -9,11 +9,11 @@
   },
   "package": {
     "productName": "NextChat",
-    "version": "2.15.2"
+    "version": "2.15.8"
   },
   "tauri": {
     "allowlist": {
-      "all": true,
+      "all": false,
       "shell": {
         "all": false,
         "open": true
@@ -103,7 +103,7 @@
       "endpoints": [
         "https://github.com/ChatGPTNextWeb/ChatGPT-Next-Web/releases/latest/download/latest.json"
       ],
-      "dialog": false,
+      "dialog": true,
       "windows": {
         "installMode": "passive"
       },
