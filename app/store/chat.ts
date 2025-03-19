@@ -1,4 +1,9 @@
-import { getMessageTextContent, trimTopic } from "../utils";
+import {
+  getMessageTextContent,
+  isDalle3,
+  safeLocalStorage,
+  trimTopic,
+} from "../utils";
 
 import { indexedDBStorage } from "@/app/utils/indexedDB-storage";
 import { nanoid } from "nanoid";
@@ -14,14 +19,14 @@ import {
   DEFAULT_INPUT_TEMPLATE,
   DEFAULT_MODELS,
   DEFAULT_SYSTEM_TEMPLATE,
+  GEMINI_SUMMARIZE_MODEL,
+  DEEPSEEK_SUMMARIZE_MODEL,
   KnowledgeCutOffDate,
+  ServiceProvider,
   StoreKey,
   SUMMARIZE_MODEL,
-  GEMINI_SUMMARIZE_MODEL,
-  ServiceProvider,
 } from "../constant";
 import Locale, { getLang } from "../locales";
-import { isDalle3, safeLocalStorage } from "../utils";
 import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
@@ -53,6 +58,7 @@ export type ChatMessage = RequestMessage & {
   model?: ModelType;
   tools?: ChatMessageTool[];
   audio_url?: string;
+  isMcpResponse?: boolean;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -134,7 +140,10 @@ function getSummarizeModel(
   }
   if (currentModel.startsWith("gemini")) {
     return [GEMINI_SUMMARIZE_MODEL, ServiceProvider.Google];
+  } else if (currentModel.startsWith("deepseek-")) {
+    return [DEEPSEEK_SUMMARIZE_MODEL, ServiceProvider.DeepSeek];
   }
+
   return [currentModel, providerName];
 }
 
@@ -214,7 +223,11 @@ export const useChatStore = createPersistStore(
         const newSession = createEmptySession();
 
         newSession.topic = currentSession.topic;
-        newSession.messages = [...currentSession.messages];
+        // 深拷贝消息
+        newSession.messages = currentSession.messages.map((msg) => ({
+          ...msg,
+          id: nanoid(), // 生成新的消息 ID
+        }));
         newSession.mask = {
           ...currentSession.mask,
           modelConfig: {
@@ -358,24 +371,28 @@ export const useChatStore = createPersistStore(
           session.messages = session.messages.concat();
           session.lastUpdate = Date.now();
         });
+
         get().updateStat(message, targetSession);
+
         get().summarizeSession(false, targetSession);
       },
 
-      async onUserInput(content: string, attachImages?: string[]) {
+      async onUserInput(
+        content: string,
+        attachImages?: string[],
+        isMcpResponse?: boolean,
+      ) {
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
 
-        const userContent = fillTemplateWith(content, modelConfig);
-        console.log("[User Input] after template: ", userContent);
+        // MCP Response no need to fill template
+        let mContent: string | MultimodalContent[] = isMcpResponse
+          ? content
+          : fillTemplateWith(content, modelConfig);
 
-        let mContent: string | MultimodalContent[] = userContent;
-
-        if (attachImages && attachImages.length > 0) {
+        if (!isMcpResponse && attachImages && attachImages.length > 0) {
           mContent = [
-            ...(userContent
-              ? [{ type: "text" as const, text: userContent }]
-              : []),
+            ...(content ? [{ type: "text" as const, text: content }] : []),
             ...attachImages.map((url) => ({
               type: "image_url" as const,
               image_url: { url },
@@ -386,6 +403,7 @@ export const useChatStore = createPersistStore(
         let userMessage: ChatMessage = createMessage({
           role: "user",
           content: mContent,
+          isMcpResponse,
         });
 
         const botMessage: ChatMessage = createMessage({
@@ -395,7 +413,7 @@ export const useChatStore = createPersistStore(
         });
 
         // get recent messages
-        const recentMessages = get().getMessagesWithMemory();
+        const recentMessages = await get().getMessagesWithMemory();
         const sendMessages = recentMessages.concat(userMessage);
         const messageIndex = session.messages.length + 1;
 
@@ -425,7 +443,7 @@ export const useChatStore = createPersistStore(
               session.messages = session.messages.concat();
             });
           },
-          onFinish(message) {
+          async onFinish(message) {
             botMessage.streaming = false;
             if (message) {
               botMessage.content = message;
@@ -494,7 +512,7 @@ export const useChatStore = createPersistStore(
         }
       },
 
-      getMessagesWithMemory() {
+      async getMessagesWithMemory() {
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
         const clearContextIndex = session.clearContextIndex ?? 0;
@@ -511,17 +529,19 @@ export const useChatStore = createPersistStore(
             session.mask.modelConfig.model.startsWith("chatgpt-"));
 
         var systemPrompts: ChatMessage[] = [];
-        systemPrompts = shouldInjectSystemPrompts
-          ? [
-              createMessage({
-                role: "system",
-                content: fillTemplateWith("", {
-                  ...modelConfig,
-                  template: DEFAULT_SYSTEM_TEMPLATE,
-                }),
+
+        if (shouldInjectSystemPrompts) {
+          systemPrompts = [
+            createMessage({
+              role: "system",
+              content: fillTemplateWith("", {
+                ...modelConfig,
+                template: DEFAULT_SYSTEM_TEMPLATE,
               }),
-            ]
-          : [];
+            }),
+          ];
+        }
+
         if (shouldInjectSystemPrompts) {
           console.log(
             "[Global System Prompt] ",
