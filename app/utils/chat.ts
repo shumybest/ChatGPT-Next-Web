@@ -11,6 +11,7 @@ import {
 } from "@fortaine/fetch-event-source";
 import { prettyObject } from "./format";
 import { fetch as tauriFetch } from "./stream";
+import { debounce } from "lodash";
 
 export function compressImage(file: Blob, maxSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -188,44 +189,27 @@ export function stream(
   options: any,
 ) {
   let responseText = "";
-  let remainText = "";
   let finished = false;
   let running = false;
   let runTools: any[] = [];
   let responseRes: Response;
 
-  // animate response to make it looks smooth
-  function animateResponseText() {
-    if (finished || controller.signal.aborted) {
-      responseText += remainText;
-      console.log("[Response Animation] finished");
-      if (responseText?.length === 0) {
-        options.onError?.(new Error("empty response from server"));
-      }
-      return;
-    }
-
-    if (remainText.length > 0) {
-      const fetchCount = Math.max(1, Math.round(remainText.length / 60));
-      const fetchText = remainText.slice(0, fetchCount);
-      responseText += fetchText;
-      remainText = remainText.slice(fetchCount);
-      options.onUpdate?.(responseText, fetchText);
-    }
-
-    requestAnimationFrame(animateResponseText);
-  }
-
-  // start animaion
-  animateResponseText();
+  // Debounced onUpdate function
+  const debouncedOnUpdate = debounce((text, chunk) => {
+    options.onUpdate?.(text, chunk);
+  }, 100); // Adjust the delay (100ms) as needed
 
   const finish = () => {
     if (!finished) {
+      // Flush any remaining debounced updates.
+      debouncedOnUpdate.flush();
+
       if (!running && runTools.length > 0) {
         const toolCallMessage = {
           role: "assistant",
           tool_calls: [...runTools],
         };
+
         running = true;
         runTools.splice(0, runTools.length); // empty runTools
         return Promise.all(
@@ -241,8 +225,7 @@ export function stream(
               ),
             )
               .then((res) => {
-                let content = res.data || res?.statusText;
-                // hotfix #5614
+                let content = res.data || res.statusText;
                 content =
                   typeof content === "string"
                     ? content
@@ -278,10 +261,8 @@ export function stream(
         ).then((toolCallResult) => {
           processToolMessage(requestPayload, toolCallMessage, toolCallResult);
           setTimeout(() => {
-            // call again
-            console.debug("[ChatAPI] restart");
             running = false;
-            chatApi(chatPath, headers, requestPayload, tools); // call fetchEventSource
+            chatApi(chatPath, headers, requestPayload, tools);
           }, 60);
         });
         return;
@@ -291,7 +272,7 @@ export function stream(
       }
       console.debug("[ChatAPI] end");
       finished = true;
-      options.onFinish(responseText + remainText, responseRes); // 将res传递给onFinish
+      options.onFinish(responseText, responseRes); // Pass responseText directly
     }
   };
 
@@ -316,6 +297,7 @@ export function stream(
       () => controller.abort(),
       REQUEST_TIMEOUT_MS,
     );
+
     fetchEventSource(chatPath, {
       fetch: tauriFetch as any,
       ...chatPayload,
@@ -358,6 +340,8 @@ export function stream(
         }
       },
       onmessage(msg) {
+        // console.debug("[Request] onmessage", msg);
+
         if (msg.data === "[DONE]" || finished) {
           return finish();
         }
@@ -369,7 +353,8 @@ export function stream(
         try {
           const chunk = parseSSE(text, runTools);
           if (chunk) {
-            remainText += chunk;
+            responseText += chunk; // Directly append to responseText
+            debouncedOnUpdate(responseText, chunk); // Use the debounced function
           }
         } catch (e) {
           console.error("[Request] parse error", text, msg, e);
@@ -386,7 +371,7 @@ export function stream(
     });
   }
   console.debug("[ChatAPI] start");
-  chatApi(chatPath, headers, requestPayload, tools); // call fetchEventSource
+  chatApi(chatPath, headers, requestPayload, tools);
 }
 
 export function streamWithThink(
@@ -411,49 +396,32 @@ export function streamWithThink(
   options: any,
 ) {
   let responseText = "";
-  let remainText = "";
   let finished = false;
   let running = false;
   let runTools: any[] = [];
   let responseRes: Response;
   let isInThinkingMode = false;
   let lastIsThinking = false;
-  let lastIsThinkingTagged = false; //between <think> and </think> tags
+  let lastIsThinkingTagged = false;
 
-  // animate response to make it looks smooth
-  function animateResponseText() {
-    if (finished || controller.signal.aborted) {
-      responseText += remainText;
-      console.log("[Response Animation] finished");
-      if (responseText?.length === 0) {
-        options.onError?.(new Error("empty response from server"));
-      }
-      return;
-    }
-
-    if (remainText.length > 0) {
-      const fetchCount = Math.max(1, Math.round(remainText.length / 60));
-      const fetchText = remainText.slice(0, fetchCount);
-      responseText += fetchText;
-      remainText = remainText.slice(fetchCount);
-      options.onUpdate?.(responseText, fetchText);
-    }
-
-    requestAnimationFrame(animateResponseText);
-  }
-
-  // start animaion
-  animateResponseText();
+  // Debounced onUpdate function
+  const debouncedOnUpdate = debounce((text, chunk) => {
+    options.onUpdate?.(text, chunk);
+  }, 100); // Adjust the delay (100ms) as needed
 
   const finish = () => {
     if (!finished) {
+      // Flush any remaining debounced updates
+      debouncedOnUpdate.flush();
+
       if (!running && runTools.length > 0) {
+        // ... (rest of the tool handling code remains the same)
         const toolCallMessage = {
           role: "assistant",
           tool_calls: [...runTools],
         };
         running = true;
-        runTools.splice(0, runTools.length); // empty runTools
+        runTools.splice(0, runTools.length);
         return Promise.all(
           toolCallMessage.tool_calls.map((tool) => {
             options?.onBeforeTool?.(tool);
@@ -468,7 +436,6 @@ export function streamWithThink(
             )
               .then((res) => {
                 let content = res.data || res?.statusText;
-                // hotfix #5614
                 content =
                   typeof content === "string"
                     ? content
@@ -504,10 +471,8 @@ export function streamWithThink(
         ).then((toolCallResult) => {
           processToolMessage(requestPayload, toolCallMessage, toolCallResult);
           setTimeout(() => {
-            // call again
-            console.debug("[ChatAPI] restart");
             running = false;
-            chatApi(chatPath, headers, requestPayload, tools); // call fetchEventSource
+            chatApi(chatPath, headers, requestPayload, tools);
           }, 60);
         });
         return;
@@ -517,7 +482,7 @@ export function streamWithThink(
       }
       console.debug("[ChatAPI] end");
       finished = true;
-      options.onFinish(responseText + remainText, responseRes);
+      options.onFinish(responseText, responseRes);
     }
   };
 
@@ -529,6 +494,7 @@ export function streamWithThink(
     requestPayload: any,
     tools: any,
   ) {
+    // ... (rest of the chatApi function remains the same)
     const chatPayload = {
       method: "POST",
       body: JSON.stringify({
@@ -538,6 +504,7 @@ export function streamWithThink(
       signal: controller.signal,
       headers,
     };
+
     const requestTimeoutId = setTimeout(
       () => controller.abort(),
       REQUEST_TIMEOUT_MS,
@@ -550,7 +517,6 @@ export function streamWithThink(
         const contentType = res.headers.get("content-type");
         console.log("[Request] response content type: ", contentType);
         responseRes = res;
-
         if (contentType?.startsWith("text/plain")) {
           responseText = await res.clone().text();
           return finish();
@@ -579,27 +545,26 @@ export function streamWithThink(
           }
 
           responseText = responseTexts.join("\n\n");
-
           return finish();
         }
       },
       onmessage(msg) {
+        // console.debug("[Request] onmessage", msg);
+
         if (msg.data === "[DONE]" || finished) {
           return finish();
         }
         const text = msg.data;
-        // Skip empty messages
         if (!text || text.trim().length === 0) {
           return;
         }
+
         try {
           const chunk = parseSSE(text, runTools);
-          // Skip if content is empty
           if (!chunk?.content || chunk.content.length === 0) {
             return;
           }
 
-          // deal with <think> and </think> tags start
           if (!chunk.isThinking) {
             if (chunk.content.startsWith("<think>")) {
               chunk.isThinking = true;
@@ -613,43 +578,38 @@ export function streamWithThink(
               chunk.isThinking = true;
             }
           }
-          // deal with <think> and </think> tags start
-
-          // Check if thinking mode changed
           const isThinkingChanged = lastIsThinking !== chunk.isThinking;
           lastIsThinking = chunk.isThinking;
 
+          let chunkText = "";
           if (chunk.isThinking) {
-            // If in thinking mode
             if (!isInThinkingMode || isThinkingChanged) {
-              // If this is a new thinking block or mode changed, add prefix
               isInThinkingMode = true;
-              if (remainText.length > 0) {
-                remainText += "\n";
+              if (responseText.length > 0) {
+                chunkText += "\n";
               }
-              remainText += "> " + chunk.content;
+              chunkText += "> " + chunk.content;
             } else {
-              // Handle newlines in thinking content
               if (chunk.content.includes("\n\n")) {
                 const lines = chunk.content.split("\n\n");
-                remainText += lines.join("\n\n> ");
+                chunkText += lines.join("\n\n> ");
               } else {
-                remainText += chunk.content;
+                chunkText += chunk.content;
               }
             }
           } else {
-            // If in normal mode
             if (isInThinkingMode || isThinkingChanged) {
-              // If switching from thinking mode to normal mode
               isInThinkingMode = false;
-              remainText += "\n\n" + chunk.content;
+              chunkText += "\n\n" + chunk.content;
             } else {
-              remainText += chunk.content;
+              chunkText += chunk.content;
             }
           }
+
+          responseText += chunkText;
+          debouncedOnUpdate(responseText, chunkText); // Use the debounced function
         } catch (e) {
           console.error("[Request] parse error", text, msg, e);
-          // Don't throw error for parse failures, just log them
         }
       },
       onclose() {
@@ -663,5 +623,5 @@ export function streamWithThink(
     });
   }
   console.debug("[ChatAPI] start");
-  chatApi(chatPath, headers, requestPayload, tools); // call fetchEventSource
+  chatApi(chatPath, headers, requestPayload, tools);
 }
